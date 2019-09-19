@@ -1,14 +1,26 @@
 from lxml import etree
+import shelve
+import glob
+import os
 
-tree = etree.parse("C:/Users/quent/OneDrive/Documents/Cours/IA/ISCX_train/TestbedSatJun12Flows.xml") 
-root = tree.getroot()
-tab = []
+folder = "C:/Users/quent/OneDrive/Documents/Cours/IA/ISCX_train/"
+files = glob.glob(folder+"*.xml")
 
-for flow in root:
-    dic = {}
-    for element in flow:
-        dic[element.tag]=element.text
-    tab.append(dic)
+for file in files:
+
+    print(file + " is being processed")
     
-print(tab[0])
+    tree = etree.parse(file) 
+    root = tree.getroot()
+    tab = []
     
+    for flow in root:
+        dic = {}
+        for element in flow:
+            dic[element.tag]=element.text
+        tab.append(dic)
+        
+    d = shelve.open("data")
+    d[os.path.basename(file)]=tab
+    d.close()
+
