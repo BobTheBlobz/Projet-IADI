@@ -3,6 +3,7 @@ import sys
 import glob
 from elasticsearch import Elasticsearch
 import requests
+import pickle
 from pylab import np, plt
 
 ES_HOST = {"host" : "localhost", "port" : 9200}
@@ -11,8 +12,8 @@ TYPE_NAME = 'flow'
 ID_FIELD = 'key'
 
 bulk_size = 1000
-folder = "C:/Users/quent/OneDrive/Documents/Cours/IA/ISCX_train/"
-    
+folder = "/home/robin/Documents/ENSIBS/Info 3/IA&DI - Marteau/Projet/XMLfiles/"
+
 PROTOCOL_DICT = { "EMPTY" : 0, "UNKNOWN" : -1 }
 DIRECTION_DICT = { "EMPTY" : 0, "UNKNOWN" : -1 }
 TAG_DICT = { "EMPTY" : 0, "UNKNOWN" : -1 }
@@ -75,8 +76,9 @@ def BuildTagDict():
         
 def payloadToHistogram(payload):
     res = [0]*256
-    for chr in payload:
-        res[ord(chr)] += 1
+    if payload != None :
+        for chr in payload:
+            res[ord(chr)] += 1
     return(res)
     
 def protocolToID(protocol):
@@ -126,10 +128,10 @@ def ip4ToVector(ip):
             res[3] = int(addr[0])
         
     return(res)        
-    
+
 def flagsToVector(flags):
     res=[0]*len(FLAG_DICT)
-    if flags == "" :
+    if flags == "" or flags == None:
         res[FLAG_DICT['EMPTY']] = 1
     else :
         ftab = flags.split(",")
@@ -139,7 +141,6 @@ def flagsToVector(flags):
             else:
                 res[FLAG_DICT['UNKNOWN']] = 1
     return res;
-    
 
 
 
@@ -162,9 +163,6 @@ def datagramToVector(datagram):
     res += [int(stringToNumerical(datagram['startDateTime']))]
     res += [int(stringToNumerical(datagram['stopDateTime']))]
     return(res)
-    
-    
-
 
 
 
@@ -178,7 +176,7 @@ def initIndex():
     es = Elasticsearch(hosts = [ES_HOST])
     if es.indices.exists(INDEX_NAME):
         print("deleting '%s' index..." % (INDEX_NAME))
-        #res = es.indices.delete(index = INDEX_NAME, ignore=[400,404])
+        res = es.indices.delete(index = INDEX_NAME, ignore=[400,404])
         print(" response: '%s'" % (res))
     # since we are running locally, use one shard and no replicas
     request_body = {
@@ -188,8 +186,8 @@ def initIndex():
         }
     }
     print("creating '%s' index..." % (INDEX_NAME))
-    #res = es.indices.create(index = INDEX_NAME, body = request_body)
-    #print(" response: '%s'" % (res))
+    res = es.indices.create(index = INDEX_NAME, body = request_body)
+    print(" response: '%s'" % (res))
     return es
     
 
@@ -203,6 +201,7 @@ def indexing(folder):
     es = initIndex()
     
     files = glob.glob(folder+"*.xml")
+    print(files)
     
     for file in files:
         print(file + " is being processed")    
@@ -241,7 +240,8 @@ def indexing(folder):
         j += 1
         print("BULK #"+ str(j)+" INDEXED")
         bulk_data.clear()
-                                
+
+
 def search(bdy, s):
     es = Elasticsearch(hosts = [ES_HOST])
     try:
@@ -251,15 +251,15 @@ def search(bdy, s):
         hits=[]
     return hits
 
+
 def searchBody(body, size):
     hits = search(body, size)
     H=hits['hits']['hits']
     print ("# hits: ", len(H))
     for h in H:
         print(h)
-        
-        
-    
+    return H
+
 
 def groupByAppName(n):
     
@@ -278,6 +278,7 @@ def groupByAppName(n):
     print("# aggs: ", len(A))
     for h in A:
         print('>> ',h['key'], " ", h['doc_count'])
+    return A
         
 def groupByProtocolName(n):
     
@@ -296,6 +297,7 @@ def groupByProtocolName(n):
     print("# aggs: ", len(A))
     for h in A:
         print('>> ',h['key'], " ", h['doc_count'])
+    return A
         
 def groupByTCP(n):
     
@@ -315,7 +317,7 @@ def groupByTCP(n):
     for h in A:
         print('>> ',h['key'], " ", h['doc_count'])
 
-def getListOfAppName(appName, size):
+def getFlowsOfAppName(appName, size):
     
     body_must={
         "query":{
@@ -384,7 +386,29 @@ def getGraph(body, size):
     ax.plot(X,tab)
     ax.set_yscale('log')
     ax.set_xscale('log')
-    
+
+
+def getAppnames(n):
+    hits = groupByAppName(n)
+    res = []
+    for hit in hits:
+        res += [hit['key']]
+    return res
+
+
+def saveVectorsByAppname(n):
+    apps = getAppnames(n)
+    for app in apps:
+        print(app)
+        filename = "/home/robin/Documents/ENSIBS/Info 3/IA&DI - Marteau/Projet/vectors/"+app
+        file = open(filename,'wb+')
+        hits = getFlowsOfAppName(app, n)
+        vector = []
+        for hit in hits:
+            vector += [datagramToVector(hit["_source"])]
+        pickle.dump(vector, file)
+        file.close()
+
     
 def main():
     if (testServer()):
@@ -407,16 +431,17 @@ def main2():
     BuildTagDict()
     print(DIRECTION_DICT)
     print(PROTOCOL_DICT)
-    print(TAG_DICT)
-    print (datagramToVector({'appName': 'HTTPWeb', 'totalSourceBytes': '378', 'totalDestinationBytes': '513', 'totalDestinationPackets': '5', 'totalSourcePackets': '5', 'sourcePayloadAsBase64': 'R0VUIC9pbWcvYnRuX2J1eS5wbmcgSFRUUC8xLjENCkhvc3Q6IHRyYWNrLmFmZmlsaWF0ZS1iLmNvbQ0KDQo=', 'sourcePayloadAsUTF': 'GET /img/btn_buy.png HTTP/1.1Host: track.affiliate-b.com', 'destinationPayloadAsBase64': 'SFRUUC8xLjEgNDA0IE5vdCBGb3VuZA0KRGF0ZTogU2F0LCAxMiBKdW4gMjAxMCAxNjowNTo1NyBHTVQNClNlcg==', 'destinationPayloadAsUTF': 'HTTP/1.1 404 Not FoundDate: Sat, 12 Jun 2010 16:05:57 GMTSer', 'direction': 'L2R', 'sourceTCPFlagsDescription': 'F,S,P,A', 'destinationTCPFlagsDescription': 'F,S,P,A', 'source': '192.168.2.106', 'protocolName': 'tcp_ip', 'sourcePort': '4625', 'destination': '202.210.143.140', 'destinationPort': '80', 'startDateTime': '2010-06-12T13:05:15', 'stopDateTime': '2010-06-12T13:05:15', 'Tag': 'Normal'}))
-    
-    #groupByAppName(50)
+    print(getAppnames(15))
+
+    groupByAppName(50)
+    saveVectorsByAppname(10000)
+
     #groupByTCP(50)
     #groupByProtocolName(50)
     #searchBody(body_all, 1)
     #getListOfFlowByProtocol('udp_ip', 1)
     
-    #getListOfAppName('Unknown_UDP', 1000)
+    #getFlowsOfAppName('Unknown_UDP', 1000)
     #getGraph(body_all, 10000)
         
 main2()
