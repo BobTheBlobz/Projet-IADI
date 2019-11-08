@@ -7,7 +7,8 @@ import pickle
 from pylab import np, plt
 
 ES_HOST = {"host" : "localhost", "port" : 9200}
-INDEX_NAME = 'projet'
+DATA_INDEX = 'projet'
+VECTORS_INDEX = 'vectors'
 TYPE_NAME = 'flow'
 ID_FIELD = 'key'
 
@@ -182,12 +183,16 @@ def testServer():
     return (response.status_code == 200)
             
 
-def initIndex():
+def initDataIndex():
+    initNewIndex(DATA_INDEX)
+    return es
+
+def initNewIndex(index_name):
     # create ES client, create index (delete it first if it exists)
     es = Elasticsearch(hosts = [ES_HOST])
-    if es.indices.exists(INDEX_NAME):
-        print("deleting '%s' index..." % (INDEX_NAME))
-        res = es.indices.delete(index = INDEX_NAME, ignore=[400,404])
+    if es.indices.exists(index_name):
+        print("deleting '%s' index..." % (index_name))
+        res = es.indices.delete(index = index_name, ignore=[400,404])
         print(" response: '%s'" % (res))
     # since we are running locally, use one shard and no replicas
     request_body = {
@@ -196,8 +201,8 @@ def initIndex():
             "number_of_replicas": 0
         }
     }
-    print("creating '%s' index..." % (INDEX_NAME))
-    res = es.indices.create(index = INDEX_NAME, body = request_body)
+    print("creating '%s' index..." % (index_name))
+    res = es.indices.create(index = index_name, body = request_body)
     print(" response: '%s'" % (res))
     return es
     
@@ -209,7 +214,7 @@ def indexing(folder):
     
     bulk_data = []            
                     
-    es = initIndex()
+    es = initDataIndex()
     
     files = glob.glob(folder+"*.xml")
     print(files)
@@ -225,7 +230,7 @@ def indexing(folder):
             op_dict = {
             "index" : 
                     {
-                    "_index": INDEX_NAME,
+                    "_index": DATA_INDEX,
                     "_type": TYPE_NAME,
                     "_id": i
                     }
@@ -241,13 +246,13 @@ def indexing(folder):
             i = i + 1
             
             if (i == (j+1)*bulk_size ):
-                es.bulk(index = INDEX_NAME, body = bulk_data, refresh = True)
+                es.bulk(index = DATA_INDEX, body = bulk_data, refresh = True)
                 j += 1
                 print("BULK #"+ str(j)+" INDEXED")
                 bulk_data.clear()
                 
     if (i != (j+1)*bulk_size ):
-        es.bulk(index = INDEX_NAME, body = bulk_data, refresh = True)
+        es.bulk(index = DATA_INDEX, body = bulk_data, refresh = True)
         j += 1
         print("BULK #"+ str(j)+" INDEXED")
         bulk_data.clear()
@@ -256,7 +261,7 @@ def indexing(folder):
 def search(bdy, s):
     es = Elasticsearch(hosts = [ES_HOST])
     try:
-        hits=es.search(index=INDEX_NAME, body=bdy, size=s)                      
+        hits=es.search(index=DATA_INDEX, body=bdy, size=s)                      
     except:
         print("error:", sys.exc_info()[0])
         hits=[]
@@ -266,7 +271,7 @@ def search(bdy, s):
 def searchWithScroll(bdy):
     es = Elasticsearch(hosts = [ES_HOST])
     try:
-        hits=es.search(index=INDEX_NAME, body=bdy, size=size, scroll='2m')                      
+        hits=es.search(index=DATA_INDEX, body=bdy, size=size, scroll='2m')                      
     except:
         print("error:", sys.exc_info()[0])
         hits=[]
@@ -358,7 +363,7 @@ def getFlowsOfAppName(appName, size):
     return searchBody(body_must, size)
 
 
-def getFlowsOfAppNameWithScroll(appName, size):
+def getFlowsOfAppNameWithScroll(appName):
     
     body_must={
         "query":{
@@ -481,6 +486,59 @@ def saveVectorsByAppnameWithScroll(n):
             scroll_size = len(data['hits']['hits'])
         pickle.dump(vector, file)
         file.close()
+        
+        
+def saveVectorsByAppnameWithScrollAndElasticSearchThisMagnificientTool():
+    es = Elasticsearch(hosts = [ES_HOST])
+    apps = getAppnames(3)
+    for app in apps:
+        print(app)
+        appindexname=app.lower()
+        es_vector = initNewIndex(appindexname)
+        
+        data = getFlowsOfAppNameWithScroll(app)
+        sid = data['_scroll_id']
+        scroll_size = len(data['hits']['hits'])
+        bulk_data = []
+        i=0
+        j=0
+        while scroll_size > 0:
+            for hit in data['hits']['hits']:
+                
+                op_dict = {
+                "index" : 
+                        {
+                        "_index": appindexname,
+                        "_type": TYPE_NAME,
+                        "_id": hit["_id"]
+                        }
+                }
+                
+                dic = { "vector" : datagramToVector(hit["_source"])}
+                
+                bulk_data.append(op_dict)
+                bulk_data.append(dic)
+                i = i + 1
+            
+                if (i == (j+1)*bulk_size ):
+                    es_vector.bulk(index = DATA_INDEX, body = bulk_data, refresh = True)
+                    j += 1
+                    print("BULK #"+ str(j)+" INDEXED")
+                    bulk_data.clear()
+                    
+                data = es.scroll(scroll_id=sid, scroll='2m')
+                sid = data['_scroll_id']
+                scroll_size = len(data['hits']['hits'])
+                
+        if (i != (j+1)*bulk_size ):
+            es_vector.bulk(index = DATA_INDEX, body = bulk_data, refresh = True)
+            j += 1
+            print("BULK #"+ str(j)+" INDEXED")
+            bulk_data.clear()
+            
+                
+
+
 
     
 def main():
@@ -508,7 +566,7 @@ def main2():
     print(getAppnames(15))
 
     #groupByAppName(50)
-    saveVectorsByAppnameWithScroll(10000)
+    saveVectorsByAppnameWithScrollAndElasticSearchThisMagnificientTool()
 
     #groupByTCP(50)
     #groupByProtocolName(50)
