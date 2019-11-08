@@ -7,17 +7,22 @@ import pickle
 from pylab import np, plt
 
 ES_HOST = {"host" : "localhost", "port" : 9200}
-INDEX_NAME = 'projet'
+DATA_INDEX = 'projet'
+VECTORS_INDEX = 'vectors'
 TYPE_NAME = 'flow'
 ID_FIELD = 'key'
 
 bulk_size = 1000
-folder = "/home/robin/Documents/ENSIBS/Info 3/IA&DI - Marteau/Projet/XMLfiles/"
+folder = "C:/Users/quent/OneDrive/Documents/Cours/IA/ISCX_train"
+
+size = 10000
+timeout = 1000
 
 PROTOCOL_DICT = { "EMPTY" : 0, "UNKNOWN" : -1 }
 DIRECTION_DICT = { "EMPTY" : 0, "UNKNOWN" : -1 }
 TAG_DICT = { "EMPTY" : 0, "UNKNOWN" : -1 }
 FLAG_DICT = { "EMPTY" : 0, "UNKNOWN" : 1 , "F" : 2, "S" : 3, "R" : 4, "P" : 5, "A" : 6, "U" : 7 }
+
 
 def BuildProtocolDict():
     
@@ -38,6 +43,7 @@ def BuildProtocolDict():
         PROTOCOL_DICT[ h['key'] ] = i
         i = i+1
 
+
 def BuildDirectionDict():  
     agg = {
     "aggs" : {
@@ -55,6 +61,7 @@ def BuildDirectionDict():
     for h in A:
         DIRECTION_DICT[ h['key'] ] = i
         i = i+1
+     
         
 def BuildTagDict():
     agg = {
@@ -73,6 +80,7 @@ def BuildTagDict():
     for h in A:
         TAG_DICT[ h['key'] ] = i
         i = i+1
+       
         
 def payloadToHistogram(payload):
     res = [0]*256
@@ -80,6 +88,7 @@ def payloadToHistogram(payload):
         for chr in payload:
             res[ord(chr)] += 1
     return(res)
+    
     
 def protocolToID(protocol):
     res = -1
@@ -90,6 +99,7 @@ def protocolToID(protocol):
             res = PROTOCOL_DICT[protocol]
     return(res)
     
+    
 def directionToID(direction):
     res = -1
     if direction == '':
@@ -98,6 +108,7 @@ def directionToID(direction):
         if (direction in DIRECTION_DICT):
             res = DIRECTION_DICT[direction]
     return(res)
+   
     
 def tagToID(Tag):
     res = -1
@@ -108,12 +119,14 @@ def tagToID(Tag):
             res = TAG_DICT[Tag]
     return(res)
     
+    
 def stringToNumerical(string):
     res = ""
     for chr in string:
         if chr>='0' and chr <='9':
             res = res + chr
     return(res)
+    
     
 def ip4ToVector(ip):
     res = [-1,-1,-1,-1]
@@ -129,6 +142,7 @@ def ip4ToVector(ip):
         
     return(res)        
 
+
 def flagsToVector(flags):
     res=[0]*len(FLAG_DICT)
     if flags == "" or flags == None:
@@ -141,7 +155,6 @@ def flagsToVector(flags):
             else:
                 res[FLAG_DICT['UNKNOWN']] = 1
     return res;
-
 
 
 def datagramToVector(datagram):
@@ -165,18 +178,21 @@ def datagramToVector(datagram):
     return(res)
 
 
-
 def testServer():
     response = requests.get("http://localhost:9200/")
     return (response.status_code == 200)
             
 
-def initIndex():
+def initDataIndex():
+    initNewIndex(DATA_INDEX)
+    return es
+
+def initNewIndex(index_name):
     # create ES client, create index (delete it first if it exists)
     es = Elasticsearch(hosts = [ES_HOST])
-    if es.indices.exists(INDEX_NAME):
-        print("deleting '%s' index..." % (INDEX_NAME))
-        res = es.indices.delete(index = INDEX_NAME, ignore=[400,404])
+    if es.indices.exists(index_name):
+        print("deleting '%s' index..." % (index_name))
+        res = es.indices.delete(index = index_name, ignore=[400,404])
         print(" response: '%s'" % (res))
     # since we are running locally, use one shard and no replicas
     request_body = {
@@ -185,8 +201,8 @@ def initIndex():
             "number_of_replicas": 0
         }
     }
-    print("creating '%s' index..." % (INDEX_NAME))
-    res = es.indices.create(index = INDEX_NAME, body = request_body)
+    print("creating '%s' index..." % (index_name))
+    res = es.indices.create(index = index_name, body = request_body)
     print(" response: '%s'" % (res))
     return es
     
@@ -198,7 +214,7 @@ def indexing(folder):
     
     bulk_data = []            
                     
-    es = initIndex()
+    es = initDataIndex()
     
     files = glob.glob(folder+"*.xml")
     print(files)
@@ -214,7 +230,7 @@ def indexing(folder):
             op_dict = {
             "index" : 
                     {
-                    "_index": INDEX_NAME,
+                    "_index": DATA_INDEX,
                     "_type": TYPE_NAME,
                     "_id": i
                     }
@@ -230,13 +246,13 @@ def indexing(folder):
             i = i + 1
             
             if (i == (j+1)*bulk_size ):
-                es.bulk(index = INDEX_NAME, body = bulk_data, refresh = True)
+                es.bulk(index = DATA_INDEX, body = bulk_data, refresh = True)
                 j += 1
                 print("BULK #"+ str(j)+" INDEXED")
                 bulk_data.clear()
                 
     if (i != (j+1)*bulk_size ):
-        es.bulk(index = INDEX_NAME, body = bulk_data, refresh = True)
+        es.bulk(index = DATA_INDEX, body = bulk_data, refresh = True)
         j += 1
         print("BULK #"+ str(j)+" INDEXED")
         bulk_data.clear()
@@ -245,7 +261,17 @@ def indexing(folder):
 def search(bdy, s):
     es = Elasticsearch(hosts = [ES_HOST])
     try:
-        hits=es.search(index=INDEX_NAME, body=bdy, size=s)                      
+        hits=es.search(index=DATA_INDEX, body=bdy, size=s)                      
+    except:
+        print("error:", sys.exc_info()[0])
+        hits=[]
+    return hits
+
+
+def searchWithScroll(bdy):
+    es = Elasticsearch(hosts = [ES_HOST])
+    try:
+        hits=es.search(index=DATA_INDEX, body=bdy, size=size, scroll='2m')                      
     except:
         print("error:", sys.exc_info()[0])
         hits=[]
@@ -255,10 +281,12 @@ def search(bdy, s):
 def searchBody(body, size):
     hits = search(body, size)
     H=hits['hits']['hits']
-    print ("# hits: ", len(H))
-    for h in H:
-        print(h)
     return H
+
+
+def searchBodyWithScroll(body):
+    hits = searchWithScroll(body)
+    return hits
 
 
 def groupByAppName(n):
@@ -279,7 +307,8 @@ def groupByAppName(n):
     for h in A:
         print('>> ',h['key'], " ", h['doc_count'])
     return A
-        
+      
+  
 def groupByProtocolName(n):
     
     agg = {
@@ -298,7 +327,8 @@ def groupByProtocolName(n):
     for h in A:
         print('>> ',h['key'], " ", h['doc_count'])
     return A
-        
+  
+      
 def groupByTCP(n):
     
     agg = {
@@ -317,6 +347,7 @@ def groupByTCP(n):
     for h in A:
         print('>> ',h['key'], " ", h['doc_count'])
 
+
 def getFlowsOfAppName(appName, size):
     
     body_must={
@@ -330,6 +361,22 @@ def getFlowsOfAppName(appName, size):
                 }
         }
     return searchBody(body_must, size)
+
+
+def getFlowsOfAppNameWithScroll(appName):
+    
+    body_must={
+        "query":{
+                "bool":{
+                        "must":{
+                                "match":{
+                                        "appName": appName}
+                                }
+                        }
+                }
+        }
+    return searchBodyWithScroll(body_must)
+
 
 def getListOfFlowByProtocol(protocol, size):
     
@@ -348,29 +395,36 @@ def getListOfFlowByProtocol(protocol, size):
 def getSourcePayloadSize(hit):
     print(">> #", hit['_id'], " : ", hit['_source']['sourcePayloadAsBase64'], "Bytes")
     return hit['_source']['sourcePayloadAsBase64']
+  
     
 def getDestinationPayloadSize(hit):
     print(">> #", hit['_id'], " : ", hit['_source']['destinationPayloadAsBase64'], "Bytes")
     return hit['_source']['destinationPayloadAsBase64']
 
+
 def getSourceBytesSize(hit):
     print(">> #", hit['_id'], " : ", hit['_source']['totalSourceBytes'], "Bytes")
     return int(hit['_source']['totalSourceBytes'])
+
 
 def getDestinationBytesSize(hit):
     print(">> #", hit['_id'], " : ", hit['_source']['totalDestinationBytes'], "Bytes")
     return int(hit['_source']['totalDestinationBytes'])
 
+
 def getSourcePacketsNumber(hit):
     #print(">> #", hit['_id'], " : ", hit['_source']['totalSourcePackets'], "Packets")
     return int(hit['_source']['totalSourcePackets'])
+
 
 def getDestinationPacketsNumber(hit):
     #print(">> #", hit['_id'], " : ", hit['_source']['totalDestinationPackets'], "Packets")
     return int(hit['_source']['totalDestinationPackets'])
 
+
 def getPacketsNumber(hit):
     return getDestinationPacketsNumber(hit) + getSourcePacketsNumber(hit)
+
 
 def getGraph(body, size):
     hits = search(body, size)
@@ -400,7 +454,7 @@ def saveVectorsByAppname(n):
     apps = getAppnames(n)
     for app in apps:
         print(app)
-        filename = "/home/robin/Documents/ENSIBS/Info 3/IA&DI - Marteau/Projet/vectors/"+app
+        filename = "C:/Users/quent/OneDrive/Documents/Cours/IA/vectors/"+app
         file = open(filename,'wb+')
         hits = getFlowsOfAppName(app, n)
         vector = []
@@ -408,6 +462,83 @@ def saveVectorsByAppname(n):
             vector += [datagramToVector(hit["_source"])]
         pickle.dump(vector, file)
         file.close()
+     
+        
+def saveVectorsByAppnameWithScroll(n):
+    es = Elasticsearch(hosts = [ES_HOST])
+    apps = getAppnames(n)
+    for app in apps:
+        print(app)
+        filename = "C:/Users/quent/OneDrive/Documents/Cours/IA/vectors/"+app
+        file = open(filename,'wb+')
+        data = getFlowsOfAppNameWithScroll(app, n)
+        sid = data['_scroll_id']
+        scroll_size = len(data['hits']['hits'])
+        vector = []
+        i=0
+        while scroll_size > 0:
+            for hit in data['hits']['hits']:
+                vector += [datagramToVector(hit["_source"])]
+            i+= scroll_size
+            print(i)
+            data = es.scroll(scroll_id=sid, scroll='2m')
+            sid = data['_scroll_id']
+            scroll_size = len(data['hits']['hits'])
+        pickle.dump(vector, file)
+        file.close()
+        
+        
+def saveVectorsByAppnameWithScrollAndElasticSearchThisMagnificientTool():
+    es = Elasticsearch(hosts = [ES_HOST])
+    apps = getAppnames(3)
+    for app in apps:
+        print(app)
+        appindexname=app.lower()
+        es_vector = initNewIndex(appindexname)
+        
+        data = getFlowsOfAppNameWithScroll(app)
+        sid = data['_scroll_id']
+        scroll_size = len(data['hits']['hits'])
+        bulk_data = []
+        i=0
+        j=0
+        while scroll_size > 0:
+            for hit in data['hits']['hits']:
+                
+                op_dict = {
+                "index" : 
+                        {
+                        "_index": appindexname,
+                        "_type": TYPE_NAME,
+                        "_id": hit["_id"]
+                        }
+                }
+                
+                dic = { "vector" : datagramToVector(hit["_source"])}
+                
+                bulk_data.append(op_dict)
+                bulk_data.append(dic)
+                i = i + 1
+            
+                if (i == (j+1)*bulk_size ):
+                    es_vector.bulk(index = DATA_INDEX, body = bulk_data, refresh = True)
+                    j += 1
+                    print("BULK #"+ str(j)+" INDEXED")
+                    bulk_data.clear()
+                    
+                data = es.scroll(scroll_id=sid, scroll='2m')
+                sid = data['_scroll_id']
+                scroll_size = len(data['hits']['hits'])
+                
+        if (i != (j+1)*bulk_size ):
+            es_vector.bulk(index = DATA_INDEX, body = bulk_data, refresh = True)
+            j += 1
+            print("BULK #"+ str(j)+" INDEXED")
+            bulk_data.clear()
+            
+                
+
+
 
     
 def main():
@@ -416,7 +547,8 @@ def main():
         indexing(folder)
     else:
         print("The server doesn't seems to be running, please call for help...")
-                                
+    
+                            
 body_all={
         "query":
             {
@@ -433,15 +565,15 @@ def main2():
     print(PROTOCOL_DICT)
     print(getAppnames(15))
 
-    groupByAppName(50)
-    saveVectorsByAppname(10000)
+    #groupByAppName(50)
+    saveVectorsByAppnameWithScrollAndElasticSearchThisMagnificientTool()
 
     #groupByTCP(50)
     #groupByProtocolName(50)
     #searchBody(body_all, 1)
     #getListOfFlowByProtocol('udp_ip', 1)
     
-    #getFlowsOfAppName('Unknown_UDP', 1000)
+    #getFlowsOfAppNameWithScroll('Unknown_UDP', 500)
     #getGraph(body_all, 10000)
         
 main2()
