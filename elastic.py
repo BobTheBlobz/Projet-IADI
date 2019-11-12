@@ -5,6 +5,7 @@ from elasticsearch import Elasticsearch
 import requests
 import pickle
 from pylab import np, plt
+from sklearn.neural_network import MLPClassifier
 
 ES_HOST = {"host" : "localhost", "port" : 9200}
 DATA_INDEX = 'projet'
@@ -42,7 +43,6 @@ def BuildProtocolDict():
     for h in A:
         PROTOCOL_DICT[ h['key'] ] = i
         i = i+1
-
 
 def BuildDirectionDict():  
     agg = {
@@ -176,6 +176,12 @@ def datagramToVector(datagram):
     res += [int(stringToNumerical(datagram['startDateTime']))]
     res += [int(stringToNumerical(datagram['stopDateTime']))]
     return(res)
+    
+    
+def findTagOfDatagram(datagram):
+    res = []
+    res += [tagToID(datagram["Tag"])]
+    return(res)
 
 
 def testServer():
@@ -184,7 +190,7 @@ def testServer():
             
 
 def initDataIndex():
-    initNewIndex(DATA_INDEX)
+    es = initNewIndex(DATA_INDEX)
     return es
 
 def initNewIndex(index_name):
@@ -286,6 +292,22 @@ def searchBody(body, size):
 
 def searchBodyWithScroll(body):
     hits = searchWithScroll(body)
+    return hits
+
+def searchAll(data_index):
+    body_all={
+        "query":
+            {
+                "match_all":{}
+            }
+        }
+            
+    es = Elasticsearch(hosts = [ES_HOST])
+    try:
+        hits=es.search(index=data_index, body=body_all, size=size, scroll='2m')                      
+    except:
+        print("error:", sys.exc_info()[0])
+        hits=[]
     return hits
 
 
@@ -514,7 +536,7 @@ def saveVectorsByAppnameWithScrollAndElasticSearchThisMagnificientTool():
                         }
                 }
                 
-                dic = { "vector" : datagramToVector(hit["_source"])}
+                dic = { "vector" : datagramToVector(hit["_source"]), "tag" : findTagOfDatagram(hit["_source"])}
                 
                 bulk_data.append(op_dict)
                 bulk_data.append(dic)
@@ -526,20 +548,32 @@ def saveVectorsByAppnameWithScrollAndElasticSearchThisMagnificientTool():
                     print("BULK #"+ str(j)+" INDEXED")
                     bulk_data.clear()
                     
-                data = es.scroll(scroll_id=sid, scroll='2m')
-                sid = data['_scroll_id']
-                scroll_size = len(data['hits']['hits'])
+            data = es.scroll(scroll_id=sid, scroll='2m')
+            sid = data['_scroll_id']
+            scroll_size = len(data['hits']['hits'])
                 
-        if (i != (j+1)*bulk_size ):
+            if (i != (j+1)*bulk_size and len(bulk_data) != 0):
+                es_vector.bulk(index = DATA_INDEX, body = bulk_data, refresh = True)
+                j += 1
+                print("BULK #"+ str(j)+" INDEXED")
+                bulk_data.clear()
+                
+        if (i != (j+1)*bulk_size and len(bulk_data) != 0):
             es_vector.bulk(index = DATA_INDEX, body = bulk_data, refresh = True)
             j += 1
             print("BULK #"+ str(j)+" INDEXED")
             bulk_data.clear()
             
-                
-
-
-
+def doTraining():
+    apps = getAppnames(2)
+    for app in apps:
+        appindexname=app.lower()
+        print(appindexname)
+        data = searchAll(appindexname)
+        print (len(data['hits']['hits']))
+        #for hit in data['hits']['hits']:
+            #print("zizi")
+        
     
 def main():
     if (testServer()):
@@ -563,10 +597,12 @@ def main2():
     BuildTagDict()
     print(DIRECTION_DICT)
     print(PROTOCOL_DICT)
-    print(getAppnames(15))
+    print(TAG_DICT)
 
     #groupByAppName(50)
-    saveVectorsByAppnameWithScrollAndElasticSearchThisMagnificientTool()
+    #saveVectorsByAppnameWithScrollAndElasticSearchThisMagnificientTool()
+    
+    doTraining()
 
     #groupByTCP(50)
     #groupByProtocolName(50)
