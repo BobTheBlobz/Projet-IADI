@@ -8,13 +8,13 @@ from pylab import np, plt
 from sklearn.neural_network import MLPClassifier
 
 ES_HOST = {"host" : "localhost", "port" : 9200}
-DATA_INDEX = 'projet'
+DATA_INDEX = 'train'
 VECTORS_INDEX = 'vectors'
 TYPE_NAME = 'flow'
 ID_FIELD = 'key'
 
 bulk_size = 1000
-folder = "C:/Users/quent/OneDrive/Documents/Cours/IA/ISCX_train"
+folder = "C:/Users/quent/OneDrive/Documents/Cours/IA/XML/train/"
 
 size = 10000
 timeout = 1000
@@ -257,7 +257,7 @@ def indexing(folder):
                 print("BULK #"+ str(j)+" INDEXED")
                 bulk_data.clear()
                 
-    if (i != (j+1)*bulk_size ):
+    if (i != (j+1)*bulk_size and len(files) != 0):
         es.bulk(index = DATA_INDEX, body = bulk_data, refresh = True)
         j += 1
         print("BULK #"+ str(j)+" INDEXED")
@@ -564,15 +564,32 @@ def saveVectorsByAppnameWithScrollAndElasticSearchThisMagnificientTool():
             print("BULK #"+ str(j)+" INDEXED")
             bulk_data.clear()
             
-def doTraining():
-    apps = getAppnames(2)
+def doTraining(clf):
+    es = Elasticsearch(hosts = [ES_HOST])
+    apps = getAppnames(1)
     for app in apps:
         appindexname=app.lower()
         print(appindexname)
         data = searchAll(appindexname)
-        print (len(data['hits']['hits']))
-        #for hit in data['hits']['hits']:
-            #print("zizi")
+        X_data = []
+        Y_data = []
+        sid = data['_scroll_id']
+        scroll_size = len(data['hits']['hits'])
+        i = 0
+        while scroll_size > 0:
+            for hit in data['hits']['hits']:
+                X_data.append(hit['_source']['vector'])
+                Y_data.append(hit['_source']['tag'][0])
+            i = i + 1
+            print(str(i*scroll_size)+" done")
+            data = es.scroll(scroll_id=sid, scroll='2m')
+            sid = data['_scroll_id']
+            scroll_size = len(data['hits']['hits'])
+        clf.fit(X_data, Y_data)
+        
+        
+def doPrediction(clf):
+    print ("")
         
     
 def main():
@@ -599,10 +616,17 @@ def main2():
     print(PROTOCOL_DICT)
     print(TAG_DICT)
 
-    #groupByAppName(50)
-    #saveVectorsByAppnameWithScrollAndElasticSearchThisMagnificientTool()
+    groupByAppName(50)
+    saveVectorsByAppnameWithScrollAndElasticSearchThisMagnificientTool()
     
-    doTraining()
+    #clf = MLPClassifier(solver='lbfgs', alpha=1e-5,
+                        #hidden_layer_sizes=(5, 2), random_state=1)
+    #doTraining(clf)
+    
+    #doPrediction(clf)
+    
+    #data = searchAll("projet")
+    #print(datagramToVector(data['hits']['hits'][0]['_source']))
 
     #groupByTCP(50)
     #groupByProtocolName(50)
