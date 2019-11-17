@@ -762,14 +762,6 @@ def main2():
     #saveVectorsByAppnameWithScrollAndElasticSearchThisMagnificientTool4Train()
     #saveVectorsByAppnameWithScrollAndElasticSearchThisMagnificientTool4Test()
     
-    i=0
-    mon_fichier = open("fichierTest.txt", "w")
-    Y_DATA_PREDICTION = ["0","5","4","8","8"]
-    Y_DATA_PROBA = [["0.1","0.2"],["0.1","0.2"],["0.1","0.2"],["0.1","0.2"],["0.1","0.2"]]
-    for data in Y_DATA_PREDICTION:
-        mon_fichier.write(data+" "+Y_DATA_PROBA[i][0])
-    mon_fichier.close()
-    
     clf = KNeighborsClassifier()
     doTraining(clf)
     
@@ -778,27 +770,24 @@ def main2():
     
     test = [0]*2
     
-    i=0
-    mon_fichier = open("fichier.txt", "w")
-    for data in Y_DATA_PREDICTION:
-        mon_fichier.write(data+" "+Y_DATA_PROBA[i])
-        mon_fichier.write(System.getProperty("line.separator"))
-    mon_fichier.close()
-        
     for data in Y_DATA_PREDICTION:
         if data == 0:
             test[0]=test[0]+1
         else:
             test[1]=test[1]+1
+            
     print(test)
     
-    
-    
-    
-    
-    
-    
+    i=0
+    mon_fichier = open("fichier.txt", "w")
+    for data in Y_DATA_PREDICTION:
+        if(int(Y_DATA_PROBA[i][0]) > int(Y_DATA_PROBA[i][1])):
+            mon_fichier.write(str(data)+" "+str(Y_DATA_PROBA[i][0])+"\n")
+        else:
+            mon_fichier.write(str(data)+" "+str(Y_DATA_PROBA[i][1])+"\n")
+    mon_fichier.close()
         
+
       
 #main()
 main2()
