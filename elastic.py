@@ -585,6 +585,10 @@ def doTraining():
         #for hit in data['hits']['hits']:
             #print("zizi")
         
+        
+def doPrediction(clf):
+    print ("")
+        
     
 def main():
     print("############################################################")
